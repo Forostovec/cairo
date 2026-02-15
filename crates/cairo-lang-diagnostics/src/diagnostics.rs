@@ -357,26 +357,28 @@ impl<'db, TEntry: DiagnosticEntry<'db> + salsa::Update> Diagnostics<'db, TEntry>
         if diagnostic_with_dup.is_empty() {
             return diagnostic_with_dup;
         }
-        let files_db: &'db dyn Database = db;
-        let mut indexed_dup_diagnostic =
-            diagnostic_with_dup.iter().enumerate().sorted_by_cached_key(|(idx, diag)| {
-                (diag.location(db).user_location(files_db).span, diag.format(db), *idx)
-            });
-        let mut prev_diagnostic_indexed = indexed_dup_diagnostic.next().unwrap();
-        let mut diagnostic_without_dup = vec![prev_diagnostic_indexed];
+        let mut indexed_diags: Vec<_> = diagnostic_with_dup
+            .iter()
+            .enumerate()
+            .map(|(idx, diag)| {
+                let user_span = diag.location(db).user_location(db).span;
+                (idx, diag, user_span)
+            })
+            .collect();
+        indexed_diags.sort_by(|a, b| a.2.cmp(&b.2));
 
-        for diag in indexed_dup_diagnostic {
-            if prev_diagnostic_indexed.1.is_same_kind(diag.1)
-                && prev_diagnostic_indexed.1.location(db).user_location(files_db).span
-                    == diag.1.location(db).user_location(files_db).span
-            {
+        let mut prev_diag = &indexed_diags[0];
+        let mut diagnostic_without_dup = vec![*prev_diag];
+
+        for diag in &indexed_diags[1..] {
+            if prev_diag.1.is_same_kind(diag.1) && prev_diag.2 == diag.2 {
                 continue;
             }
-            diagnostic_without_dup.push(diag);
-            prev_diagnostic_indexed = diag;
+            diagnostic_without_dup.push(*diag);
+            prev_diag = diag;
         }
-        diagnostic_without_dup.sort_by_key(|(idx, _)| *idx);
-        diagnostic_without_dup.into_iter().map(|(_, diag)| diag.clone()).collect()
+        diagnostic_without_dup.sort_by_key(|(idx, _, _)| *idx);
+        diagnostic_without_dup.into_iter().map(|(_, diag, _)| diag.clone()).collect()
     }
 
     /// Merges two sets of diagnostics.
